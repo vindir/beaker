@@ -1,149 +1,107 @@
-require 'time'
-
 module Beaker
-  #Beaker support for the DigitalOcean
+  #Beaker support for digitalocean
   class DigitalOcean < Beaker::Hypervisor
 
-    #Create a new instance of the Google Compute Engine hypervisor object
-    #@param [<Host>] google_hosts The array of google hosts to provision, may ONLY be of platforms /centos-6-.*/ and
-    #                             /debian-7-.*/.  We currently only support the Google Compute provided templates.
+    SLEEPWAIT = 5
+
+    #Create a new instance of the digitalocean hypervisor object
+    #@param [<Host>] digitalocean_hosts The array of digitalocean hosts to provision
     #@param [Hash{Symbol=>String}] options The options hash containing configuration values
-    #@option options [String] :gce_project The Google Compute Project name to connect to
-    #@option options [String] :gce_keyfile The location of the Google Compute service account keyfile
-    #@option options [String] :gce_password The password for the Google Compute service account key
-    #@option options [String] :gce_email The email address for the Google Compute service account
-    #@option options [String] :gce_machine_type A Google Compute machine type used to create instances, defaults to n1-highmem-2
+    #@option options [String] :digitalocean_api_key The key to access the digitalocean instance with (required)
+    #@option options [String] :digitalocean_username The username to access the digitalocean instance with (required)
+    #@option options [String] :digitalocean_auth_url The URL to access the digitalocean instance with (required)
+    #@option options [String] :digitalocean_tenant The tenant to access the digitalocean instance with (required)
+    #@option options [String] :digitalocean_network The network that each digitalocean instance should be contacted through (required)
+    #@option options [String] :digitalocean_keyname The name of an existing key pair that should be auto-loaded onto each
+    #                                            digitalocean instance (optional)
+    #@option options [String] :jenkins_build_url Added as metadata to each digitalocean instance
+    #@option options [String] :department Added as metadata to each digitalocean instance
+    #@option options [String] :project Added as metadata to each digitalocean instance
     #@option options [Integer] :timeout The amount of time to attempt execution before quiting and exiting with failure
-    def initialize(google_hosts, options)
-      require 'beaker/hypervisor/digitalocean_helper'
+    def initialize(digitalocean_hosts, options)
+      require 'fog'
       @options = options
       @logger = options[:logger]
-      @gce_helper = GoogleComputeHelper.new(options)
+      @hosts = digitalocean_hosts
+      @vms = []
+
+      @compute_client ||= Fog::Compute.new(:provider => 'DigitalOcean',
+                                           :digitalocean_api_key => 'FOO',
+                                           :digitalocean_client_id => 'BAR')
+
+      if not @compute_client
+        raise "Unable to create DigitalOcean Compute instance"
+      end
     end
 
-    #Create and configure virtual machines in the Google Compute Engine, including their associated disks and firewall rules
-    #Currently ONLY supports Google Compute provided templates of CENTOS-6 and DEBIAN-7
+    # Flavours are sizes
+    def flavor f
+      @logger.debug "Digitalocean: Looking up flavor '#{f}'"
+      @compute_client.flavors.find { |x| x.name == f } || raise("Couldn't find flavor: #{f}")
+    end
+
+    #Provided an image name return the digitalocean id for that image
+    #@param [String] i The image name
+    #@return [String] digitalocean id for provided image name
+    def image i
+      @logger.debug "Digitalocean: Looking up image '#{i}'"
+      @compute_client.images.find { |x| x.name == i } || raise("Couldn't find image: #{i}")
+    end
+
+    def region r
+      @logger.debug "Digitalocean: Looking up region '#{r}'"
+      @compute_client.regions.find { |x| x.name == r } || raise("Couldn't find region: #{r}")
+    end
+
+    #Create new instances in digitalocean
     def provision
-      try = 1
-      attempts = @options[:timeout].to_i / SLEEPWAIT
-      start = Time.now
-
-      #get machineType resource, used by all instances
-      machineType = @gce_helper.get_machineType(start, attempts)
-
-      #set firewall to open pe ports
-      network = @gce_helper.get_network(start, attempts)
-      @firewall = generate_host_name
-      @gce_helper.create_firewall(@firewall, network, start, attempts)
-
-      @logger.debug("Created Google Compute firewall #{@firewall}")
-
+      @logger.notify "Provisioning digitalocean"
 
       @hosts.each do |host|
-        gplatform = Platform.new(host[:image] || host[:platform])
-        img = @gce_helper.get_latest_image(gplatform, start, attempts)
-        host['diskname'] = generate_host_name
-        disk = @gce_helper.create_disk(host['diskname'], img, start, attempts)
-        @logger.debug("Created Google Compute disk for #{host.name}: #{host['diskname']}")
+        host[:vmhostname] = generate_host_name
+        @logger.debug "Provisioning #{host.name} (#{host[:vmhostname]})"
+        options = {
+          :flavor_id => flavor(host[:flavor]).id,
+          :image_id => host[:image_id],
+          :region_id => region(host[:region]).id,
+          :name => host[:vmhostname],
+        }
 
-        #create new host name
-        host['vmhostname'] = generate_host_name
-        #add a new instance of the image
-        instance = @gce_helper.create_instance(host['vmhostname'], img, machineType, disk, start, attempts)
-        @logger.debug("Created Google Compute instance for #{host.name}: #{host['vmhostname']}")
+        vm = @compute_client.servers.create(options)
 
-        #add metadata to instance, if there is any to set
-        mdata = format_metadata
-        if not mdata.empty?
-          @gce_helper.setMetadata_on_instance(host['vmhostname'], instance['metadata']['fingerprint'],
-                                              mdata,
-                                              start, attempts)
-          @logger.debug("Added tags to Google Compute instance #{host.name}: #{host['vmhostname']}")
+        #wait for the new instance to start up
+        start = Time.now
+        try = 1
+        attempts = @options[:timeout].to_i / SLEEPWAIT
+
+        while try <= attempts
+          begin
+            vm.wait_for(5) { ready? }
+            break
+          rescue Fog::Errors::TimeoutError => e
+            if try >= attempts
+              @logger.debug "Failed to connect to new digitalocean instance #{host.name} (#{host[:vmhostname]})"
+              raise e
+            end
+            @logger.debug "Timeout connecting to instance #{host.name} (#{host[:vmhostname]}), trying again..."
+          end
+          sleep SLEEPWAIT
+          try += 1
         end
 
-        #get ip for this host
-        host['ip'] = instance['networkInterfaces'][0]['accessConfigs'][0]['natIP']
+        @vms << vm
 
-        #configure ssh
-        default_user = host['user']
-        host['user'] = 'google_compute'
-
-        disable_se_linux(host, @options)
-        copy_ssh_to_root(host, @options)
-        enable_root_login(host, @options)
-        host['user'] = default_user
-
-        #shut down connection, will reconnect on next exec
-        host.close
-
-        @logger.debug("Instance ready: #{host['vmhostname']} for #{host.name}}")
       end
     end
 
-    #Shutdown and destroy virtual machines in the Google Compute Engine, including their associated disks and firewall rules
-    def cleanup()
-      attempts = @options[:timeout].to_i / SLEEPWAIT
-      start = Time.now
-
-      @gce_helper.delete_firewall(@firewall, start, attempts)
-
-      @hosts.each do |host|
-        @gce_helper.delete_instance(host['vmhostname'], start, attempts)
-        @logger.debug("Deleted Google Compute instance #{host['vmhostname']} for #{host.name}")
-        @gce_helper.delete_disk(host['diskname'], start, attempts)
-        @logger.debug("Deleted Google Compute disk #{host['diskname']} for #{host.name}")
+    #Destroy any digitalocean instances
+    def cleanup
+      @logger.notify "Cleaning up digitalocean"
+      @vms.each do |vm|
+        @logger.debug "Release floating IPs for digitalocean host #{vm.name}"
+        @logger.debug "Destroying digitalocean host #{vm.name}"
+        vm.destroy
       end
-
-    end
-
-    #Shutdown and destroy Google Compute instances (including their associated disks and firewall rules)
-    #that have been alive longer than ZOMBIE hours.
-    def kill_zombies(max_age = ZOMBIE)
-      now = start = Time.now
-      attempts = @options[:timeout].to_i / SLEEPWAIT
-
-      #get rid of old instances
-      instances = @gce_helper.list_instances(start, attempts)
-      if instances
-        instances.each do |instance|
-          created = Time.parse(instance['creationTimestamp'])
-          alive = (now - created ) /60 /60
-          if alive >= max_age
-            #kill it with fire!
-            @logger.debug("Deleting zombie instance #{instance['name']}")
-            @gce_helper.delete_instance( instance['name'], start, attempts )
-          end
-        end
-      else
-        @logger.debug("No zombie instances found")
-      end
-      #get rid of old disks
-      disks = @gce_helper.list_disks(start, attempts)
-      if disks
-        disks.each do |disk|
-          created = Time.parse(disk['creationTimestamp'])
-          alive = (now - created ) /60 /60
-          if alive >= max_age
-            #kill it with fire!
-            @logger.debug("Deleting zombie disk #{disk['name']}")
-            @gce_helper.delete_disk( disk['name'], start, attempts )
-          end
-        end
-      else
-        @logger.debug("No zombie disks found")
-      end
-      #get rid of non-default firewalls
-      firewalls = @gce_helper.list_firewalls( start, attempts)
-
-      if firewalls and not firewalls.empty?
-        firewalls.each do |firewall|
-          @logger.debug("Deleting non-default firewall #{firewall['name']}")
-          @gce_helper.delete_firewall( firewall['name'], start, attempts )
-        end
-      else
-        @logger.debug("No zombie firewalls found")
-      end
-
     end
 
   end
