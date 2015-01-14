@@ -43,9 +43,9 @@ module Beaker
     #Provided an image name return the digitalocean id for that image
     #@param [String] i The image name
     #@return [String] digitalocean id for provided image name
-    def image i
-      @logger.debug "Digitalocean: Looking up image '#{i}'"
-      @compute_client.images.find { |x| x.name == i } || raise("Couldn't find image: #{i}")
+    def image (dist, name)
+      @logger.debug "Digitalocean: Looking up image - Dist: '#{dist}' Name: #{name}"
+      @compute_client.images.find { |x| (x.name == name) && (x.distribution == dist)} #|| raise("Couldn't find image: #{dist} #{name}")
     end
 
     def region r
@@ -63,7 +63,7 @@ module Beaker
 
         vm = @compute_client.servers.bootstrap({
           :name => host[:vmhostname],
-          :image_id => host[:image_id],
+          :image_id => image(host[:image_distribution], host[:image_name]).id,
           :region_id => region(host[:region]).id,
           :flavor_id => flavor(host[:flavor]).id,
           :public_key_path => File.expand_path('~/.ssh/id_rsa.pub'),
