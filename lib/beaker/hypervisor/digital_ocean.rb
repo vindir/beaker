@@ -60,34 +60,19 @@ module Beaker
       @hosts.each do |host|
         host[:vmhostname] = generate_host_name
         @logger.debug "Provisioning #{host.name} (#{host[:vmhostname]})"
-        options = {
-          :flavor_id => flavor(host[:flavor]).id,
+
+        vm = @compute_client.servers.bootstrap({
+          :name => host[:vmhostname],
           :image_id => host[:image_id],
           :region_id => region(host[:region]).id,
-          :name => host[:vmhostname],
-        }
+          :flavor_id => flavor(host[:flavor]).id,
+          :public_key_path => File.expand_path('~/.ssh/id_rsa.pub'),
+          :private_key_path => File.expand_path('~/.ssh/id_rsa'),
+        })
+        @logger.debug "Waiting for #{host.name} (#{host[:vmhostname]}) to respond"
+        vm.wait_for { ready? }
 
-        vm = @compute_client.servers.create(options)
-
-        #wait for the new instance to start up
-        start = Time.now
-        try = 1
-        attempts = @options[:timeout].to_i / SLEEPWAIT
-
-        while try <= attempts
-          begin
-            vm.wait_for(5) { ready? }
-            break
-          rescue Fog::Errors::TimeoutError => e
-            if try >= attempts
-              @logger.debug "Failed to connect to new digitalocean instance #{host.name} (#{host[:vmhostname]})"
-              raise e
-            end
-            @logger.debug "Timeout connecting to instance #{host.name} (#{host[:vmhostname]}), trying again..."
-          end
-          sleep SLEEPWAIT
-          try += 1
-        end
+        host[:ip] = vm.public_ip_address
 
         @vms << vm
 
@@ -98,7 +83,6 @@ module Beaker
     def cleanup
       @logger.notify "Cleaning up digitalocean"
       @vms.each do |vm|
-        @logger.debug "Release floating IPs for digitalocean host #{vm.name}"
         @logger.debug "Destroying digitalocean host #{vm.name}"
         vm.destroy
       end
