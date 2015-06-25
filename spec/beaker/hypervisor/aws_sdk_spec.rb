@@ -42,6 +42,57 @@ module Beaker
       @hosts[3][:user] = "ubuntu"
     end
 
+    describe '#provision', :wip do
+    end
+
+    describe '#kill_instances', :wip do
+    end
+
+    describe '#cleanup', :wip do
+    end
+
+    describe '#log_instances', :wip do
+    end
+
+    describe '#instance_by_id', :wip do
+    end
+
+    describe '#instances', :wip do
+    end
+
+    describe '#vpc_by_id', :wip do
+    end
+
+    describe '#vpcs', :wip do
+    end
+
+    describe '#security_group_by_id', :wip do
+    end
+
+    describe '#security_groups', :wip do
+    end
+
+    describe '#kill_zombies', :wip do
+    end
+
+    describe '#kill_zombie_volumes', :wip do
+    end
+
+    describe '#create_instance', :wip do
+    end
+
+    describe '#launch_nodes_on_some_subnet', :wip do
+    end
+
+    describe '#launch_all_nodes', :wip do
+    end
+
+    describe '#wait_for_status', :wip do
+    end
+
+    describe '#add_tags', :wip do
+    end
+
     describe '#populate_dns' do
       let( :vpc_instance ) { {ip_address: nil, private_ip_address: "vpc_private_ip", dns_name: "vpc_dns_name"} }
       let( :ec2_instance ) { {ip_address: "ec2_public_ip", private_ip_address: "ec2_private_ip", dns_name: "ec2_dns_name"} }
@@ -107,6 +158,9 @@ module Beaker
       end
     end
 
+    describe '#configure_hosts', :wip do
+    end
+
     describe '#enable_root_on_hosts' do
       context 'enabling root shall be called once for the ubuntu machine' do
         it "should enable root once" do
@@ -115,6 +169,9 @@ module Beaker
           aws.enable_root_on_hosts();
         end
       end
+    end
+
+    describe '#set_hostnames', :wip do
     end
 
     describe '#backoff_sleep' do
@@ -150,6 +207,12 @@ module Beaker
       end
     end
 
+    describe '#local_user', :wip do
+    end
+
+    describe '#ensure_key_pair', :wip do
+    end
+
     describe '#group_id' do
       it 'should return a predicatable group_id from a port list' do
         expect(aws.group_id([22, 1024])).to eq("Beaker-2799478787")
@@ -158,6 +221,15 @@ module Beaker
       it 'should return a predicatable group_id from an empty list' do
         expect { aws.group_id([]) }.to raise_error(ArgumentError, "Ports list cannot be nil or empty")
       end
+    end
+
+    describe '#ensure_group', :wip do
+    end
+
+    describe '#create_group', :wip do
+    end
+
+    describe '#load_fog_credentials', :wip do
     end
 
   end
