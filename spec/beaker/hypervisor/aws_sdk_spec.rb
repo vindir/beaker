@@ -42,57 +42,6 @@ module Beaker
       @hosts[3][:user] = "ubuntu"
     end
 
-    context 'enabling root shall be called once for the ubuntu machine' do
-      it "should enable root once" do
-        expect( aws ).to receive(:copy_ssh_to_root).with( @hosts[3], options ).once()
-        expect( aws ).to receive(:enable_root_login).with( @hosts[3], options).once()
-        aws.enable_root_on_hosts();
-      end
-    end
-
-    context '#backoff_sleep' do
-      it "should call sleep 1024 times at attempt 10" do
-        expect_any_instance_of( Object ).to receive(:sleep).with(1024)
-        aws.backoff_sleep(10)
-      end
-    end
-
-    context '#public_key' do
-      it "retrieves contents from local ~/.ssh/ssh_rsa.pub file" do
-        # Stub calls to file read/exists
-        allow(File).to receive(:exists?).with(/id_rsa.pub/) { true }
-        allow(File).to receive(:read).with(/id_rsa.pub/) { "foobar" }
-
-        # Should return contents of allow( previously ).to receivebed id_rsa.pub
-        expect(aws.public_key).to eq("foobar")
-      end
-
-      it "should return an error if the files do not exist" do
-        expect { aws.public_key }.to raise_error(RuntimeError, /Expected either/)
-      end
-    end
-
-    context '#key_name' do
-      it 'returns a key name from the local hostname' do
-        # Mock out the hostname and local user calls
-        expect( Socket ).to receive(:gethostname) { "foobar" }
-        expect( aws ).to receive(:local_user) { "bob" }
-
-        # Should match the expected composite key name
-        expect(aws.key_name).to eq("Beaker-bob-foobar")
-      end
-    end
-
-    context '#group_id' do
-      it 'should return a predicatable group_id from a port list' do
-        expect(aws.group_id([22, 1024])).to eq("Beaker-2799478787")
-      end
-
-      it 'should return a predicatable group_id from an empty list' do
-        expect { aws.group_id([]) }.to raise_error(ArgumentError, "Ports list cannot be nil or empty")
-      end
-    end
-
     describe '#populate_dns' do
       let( :vpc_instance ) { {ip_address: nil, private_ip_address: "vpc_private_ip", dns_name: "vpc_dns_name"} }
       let( :ec2_instance ) { {ip_address: "ec2_public_ip", private_ip_address: "ec2_private_ip", dns_name: "ec2_dns_name"} }
@@ -157,5 +106,57 @@ module Beaker
         end
       end
     end
+
+    context 'enabling root shall be called once for the ubuntu machine' do
+      it "should enable root once" do
+        expect( aws ).to receive(:copy_ssh_to_root).with( @hosts[3], options ).once()
+        expect( aws ).to receive(:enable_root_login).with( @hosts[3], options).once()
+        aws.enable_root_on_hosts();
+      end
+    end
+
+    context '#backoff_sleep' do
+      it "should call sleep 1024 times at attempt 10" do
+        expect_any_instance_of( Object ).to receive(:sleep).with(1024)
+        aws.backoff_sleep(10)
+      end
+    end
+
+    context '#public_key' do
+      it "retrieves contents from local ~/.ssh/ssh_rsa.pub file" do
+        # Stub calls to file read/exists
+        allow(File).to receive(:exists?).with(/id_rsa.pub/) { true }
+        allow(File).to receive(:read).with(/id_rsa.pub/) { "foobar" }
+
+        # Should return contents of allow( previously ).to receivebed id_rsa.pub
+        expect(aws.public_key).to eq("foobar")
+      end
+
+      it "should return an error if the files do not exist" do
+        expect { aws.public_key }.to raise_error(RuntimeError, /Expected either/)
+      end
+    end
+
+    context '#key_name' do
+      it 'returns a key name from the local hostname' do
+        # Mock out the hostname and local user calls
+        expect( Socket ).to receive(:gethostname) { "foobar" }
+        expect( aws ).to receive(:local_user) { "bob" }
+
+        # Should match the expected composite key name
+        expect(aws.key_name).to eq("Beaker-bob-foobar")
+      end
+    end
+
+    context '#group_id' do
+      it 'should return a predicatable group_id from a port list' do
+        expect(aws.group_id([22, 1024])).to eq("Beaker-2799478787")
+      end
+
+      it 'should return a predicatable group_id from an empty list' do
+        expect { aws.group_id([]) }.to raise_error(ArgumentError, "Ports list cannot be nil or empty")
+      end
+    end
+
   end
 end
